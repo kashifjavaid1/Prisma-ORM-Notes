@@ -1,0 +1,314 @@
+How to create a Step-by-Step Guide: Adding Google Authentication with NextAuth in Next.js 13, Prisma and MongoDB
+In this blog post, we will learn how to create a web application that allows users to sign up using their Google account and then save their data in MongoDB using Prisma. We will also learn how to protect some routes like the dashboard using the session from NextAuth.
+Defining the tech stack involved
+Before we start coding, let’s define the tech stack that we will use for this project:
+Next.js: A React framework that enables server-side rendering, static site generation, and API routes.
+NextAuth: A library that provides authentication and authorization for Next.js applications using various providers like Google, Facebook, Twitter, etc.
+Prisma: An ORM (Object Relational Mapper) that allows us to interact with MongoDB using a schema and models.
+MogoDB: A NoSQL database that stores data in JSON-like documents.
+Setting Up Prisma with MongoDB:
+Install Prisma CLI globally:
+
+npm install prisma -g
+npm install -D prisma
+​
+Initialize Prisma configuration:
+
+npx prisma init --datasource-provider=mongodb
+​
+Creating the schema and the models
+Now that we have set up the project, we need to define the schema and the models for our database. We will use Prisma to do that.
+The schema is a file that describes the structure of our database using a declarative syntax. It defines the tables (or collections in MongoDB), the fields, the relations, and the constraints.
+The models are classes that represent the tables (or collections) in our database. They allow us to perform CRUD (Create, Read, Update, Delete) operations on our data using Prisma.
+To create the schema and the models, we need to edit the schema.prisma file inside the prisma folder. Here is an example of how it looks like:
+To set up Prisma SCHEMA Follow: https://authjs.dev/reference/adapter/prisma
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Account {
+  id                String  @id @default(auto()) @map("_id") @db.ObjectId
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.String
+  access_token      String? @db.String
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.String
+  session_state     String?
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([provider, providerAccountId])
+}
+model Session {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+model User {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  accounts      Account[]
+  sessions      Session[]
+}
+model VerificationToken {
+  identifier String   @id @default(auto()) @map("_id") @db.ObjectId
+  token      String   @unique
+  expires    DateTime
+  @@unique([identifier, token])
+}
+​
+Now that we have written our schema, we can create the collections in our database. Using the Prisma using the CLI tool, run npx prisma db push, and you should see:
+In this schema, we have four models: User, Account, Session, and VerificationRequest. These models are based on the [NextAuth documentation] for MongoDB.
+The User model represents a user of our application. It has fields like name, email, image, and accounts. The accounts field is a relation that connects the user to one or more accounts from different providers.
+The Account model represents an account from a provider like Google, Facebook, Twitter, etc. It has fields like providerType, providerId, providerAccountId, refreshToken, accessToken, and user. The user field is a relation that connects the account to a user.
+The Session model represents a session of a user. It has fields like expires, sessionToken, accessToken, and user. The user field is a relation that connects the session to a user.
+The VerificationRequest model represents a verification request for email sign in or password reset. It has fields like identifier, token, expires, and so on.
+Awesome! Now, to interact with our database, we must first generate the Prisma Client. Use the Prisma CLI to generate the Prisma Client
+npx prisma generate
+​
+This command reads our Prisma schema and generates a version of Prisma Client that is tailored to our models.
+We can start using PrismaClient to interact with our database. We'll use a single PrismaClient instance that we can import into any file where needed. Create a new ./prisma/prisma.js file
+// prisma/prisma.js
+
+import { PrismaClient } from '@prisma/client'
+let prisma
+if (process.env.NODE_ENV === 'production') {
+  prisma = new PrismaClient()
+} else {
+  if (!global.prisma) {
+    global.prisma = new PrismaClient()
+  }
+  prisma = global.prisma
+}
+export default prisma
+​
+After editing the schema, we need to run npx prisma generate or yarn prisma generate to generate the Prisma client. The Prisma client is a library that allows us to perform CRUD operations on our data using the models.
+ Perform CRUD operations using Prisma by writing code in your project. Prisma provides a client that allows you to interact with the database. You can use functions like prisma.user.findMany(), prisma.user.create(), prisma.user.update(), and prisma.user.delete() to perform CRUD operations on the User model.
+import { PrismaClient } from '@prisma/client';
+const prisma = new PrismaClient();
+
+	//Create new user
+async function createUser(email, name, password) {
+  const newUser = await prisma.user.create({
+    data: {
+      email,
+      name,
+      password,
+    },
+  });
+
+  return newUser;
+}
+
+// Usage
+const user = await createUser('newuser@example.com', 'New User', 'password123');
+console.log('Created User:', user);
+
+//READ USER FROM DB
+async function getUsers() {
+  const users = await prisma.user.findMany();
+  return users;
+}
+
+// Usage
+const allUsers = await getUsers();
+console.log('All Users:', allUsers);
+
+//UPDATE USER
+async function updateUser(userId, newData) {
+  const updatedUser = await prisma.user.update({
+    where: { id: userId },
+    data: newData,
+  });
+
+  return updatedUser;
+}
+
+// Usage
+const updatedUserInfo = await updateUser(1, { name: 'Updated User' });
+console.log('Updated User:', updatedUserInfo);
+
+//DELET USER
+async function deleteUser(userId) {
+  const deletedUser = await prisma.user.delete({
+    where: { id: userId },
+  });
+
+  return deletedUser;
+}
+
+// Usage
+const deletedUserInfo = await deleteUser(1);
+console.log('Deleted User:', deletedUserInfo);
+​
+Setting up NextAuth with Google provider and Prisma client
+Next, we need to set up NextAuth with Google provider and Prisma client. NextAuth is a library that provides authentication and authorization for Next.js applications using various providers like Google, Facebook, Twitter, etc. It also supports email sign in, passwordless sign in, and custom sign in methods.
+Install Next auth
+npm install next-auth
+​
+To set up NextAuth, we need to edit the api/auth/[...nextauth] file inside the app folder. Here is an example of how it looks like:
+import NextAuth from "next-auth";
+import GoogleProvider from "next-auth/providers/google";
+import { PrismaAdapter } from "@auth/prisma-adapter";
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
+
+export const authOptions = {
+adapter: PrismaAdapter(prisma),
+  // Configure one or more authentication providers
+  providers: [
+    GoogleProvider({
+      clientId: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    }),
+  ],
+  callbacks: {
+    async signIn({ account, profile }) {
+      if (account.provider === "google") {
+        //Check emails exists
+        const existingUser = await prisma.user.findUnique({
+          where: { email: profile.email },
+        });
+        if (existingUser) {
+          //User already exists, do nothing or update some fields
+          console.log("User already exists:", existingUser);
+        } else {
+          //User does not exist, create a new user with the profile data
+          const newUser = await prisma.user.create({
+            data: {
+              name: profile.name,
+              email: profile.email,
+              image: profile.image,
+              },
+            },
+          });
+          console.log("User created:", newUser);
+        }
+      }
+      return profile;
+    },
+
+
+};
+const handler = NextAuth(authOptions);
+
+export { handler as GET, handler as POST };
+​
+In this file, 
+To set up Prisma Adapter Follow: https://authjs.dev/reference/adapter/prisma
+we import NextAuth, GoogleProvider, and PrismaClient. We create an instance of PrismaClient and assign it to a variable called prisma. We also create an object called authOptions and pass it to NextAuth as an argument.
+The authOptions object contains the configuration for NextAuth. It has a property called providers that is an array of one or more authentication providers. In this case, we only have one provider: GoogleProvider.
+The GoogleProvider takes an object as an argument that contains the clientId and clientSecret of our Google OAuth app. We get these values from the environment variables that we defined earlier.
+The authOptions object also has a property called callbacks that is an object of functions that are invoked during the authentication process. In this case, we only have one callback: signIn.
+The signIn callback is a function that takes an object as an argument that contains the account and the profile of the user who is signing in. The account is an object that contains information about the provider, such as providerType, providerId, providerAccountId, refreshToken, accessToken, etc. The profile is an object that contains information about the user, such as name, email, image, etc.
+The signIn callback is where we can perform custom logic to save the user data in our database using Prisma. For example, we can check if the email already exists in our database, and if not, create a new user with the profile data.
+callbacks
+async session({ session, token}) {
+    if(token){
+				session.user.id=token.id
+				session.user.name=token.name
+				session.user.email=token.email
+				session.user.image=token.picture
+			}
+    return session
+  },
+
+async jwt({ token, user}) {
+   const existingUser = await prisma.user.findUnique({
+          where: { email: profile.email },
+        });
+        if (existingUser) {
+          return{
+							name: existingUser.name,
+              email: existingUser.email,
+              image: existingUser.image,
+						}
+        } else {
+          //User does not exist, create a new user with the profile data
+          const newUser = await prisma.user.create({
+            data: {
+              name: token.name,
+              email: token.email,
+              image: token.image,
+              },
+            },
+          });
+          console.log("User created:", newUser);
+        }
+    return token
+  }
+  },
+pages: {
+    signIn: '/auth/signin',
+    signOut: '/auth/signout',
+    error: '/auth/error',
+  },
+​
+Create your Home Page, page.js
+"use client";
+import { signIn, useSession } from "next-auth/react";
+import Image from "next/image";
+
+export default function Home() {
+  const { data: session, status } = useSession();
+  console.log(session);
+  if (status === "loading") {
+    return (
+      <div>
+        <h2>App Loading...</h2>
+      </div>
+    );
+  }
+  if (status === "unauthenticated") {
+    return (
+      <div>
+        <button>SignIn</button>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-8 items-center justify-center min-h-screen">
+      <h2>Welcome to Home Page</h2>
+      {status === "authenticated" ? (
+        <div className="py-8 px-8 rounded bg-pink-100">
+          <Image
+            src={session?.user?.image}
+            width={100}
+            height={100}
+            className="rounded-full object-cover"
+          />
+          <h2>Welcome {session?.user?.name}</h2>
+          <p>Email: {session?.user?.email}</p>
+        </div>
+      ) : (
+        <button onClick={() => signIn("google")}>SignIn</button>
+      )}
+    </div>
+  );
+}
+
+
+
+
+
+/// website link 
+
+
+https://desishub.notion.site/How-to-create-a-Step-by-Step-Guide-Adding-Google-Authentication-with-NextAuth-in-Next-js-13-Prisma-2e08646b1875402e9d8cb988a108fd77
