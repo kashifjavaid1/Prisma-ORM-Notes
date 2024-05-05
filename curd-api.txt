@@ -55,7 +55,7 @@
           [id].page.tsx
          ----------------
           
-        Put data in Mondodb Prisma ORM 
+       Put data in Mondodb Prisma ORM 
         ------------------------------
       export const PUT = async (
        request: NextRequest,
@@ -77,8 +77,10 @@
        return NextResponse.json({ message: "error" });
       }
      };
+
+
     
-     // GET DATA Update in Prisma ORM 
+     5 // GET DATA Update in Prisma ORM 
 
       export const GET = async (
      request: NextRequest,
